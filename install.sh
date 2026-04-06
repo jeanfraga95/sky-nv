@@ -1,82 +1,27 @@
+curl -fsSL -o /tmp/sky-pro.sh << 'EOF'
 #!/bin/bash
-
-# Sky Channels Capture Script Installer
-# Para VPS Ubuntu 22.04 ARM/x86_64
-# https://github.com/jeanfraga95/sky-nv
+# Sky PRO Anti-CAPTCHA - Versão ARM64 Ubuntu 20.04
 
 set -e
+echo "=== SKY PRO Anti-CAPTCHA Installer ==="
 
-echo "=== Sky Channels Capture Installer ==="
-echo "Para uso pessoal apenas!"
+# Dependências PRO
+apt update && apt install -y \
+    libxml2-dev libxslt1-dev python3-dev build-essential \
+    chromium-browser xvfb libnss3 libatk-bridge2.0-0 \
+    libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
+    libxrandr2 libgbm1 libasound2 fonts-liberation \
+    libu2f-udev libvulkan1 libdrm-amdgpu1 libxss1 \
+    libxrandr2 libasound2 libpangocairo-1.0-0 libatk1.0-0 \
+    libcairo-gobject2 libgtk-3-0 libgdk-pixbuf2.0-0
 
-# Cores para output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+INSTALL_DIR="/opt/sky-pro"
+mkdir -p "$INSTALL_DIR" "{logs,scripts,config}" "$INSTALL_DIR/logs"
 
-# Diretório de instalação
-INSTALL_DIR="/opt/sky-capture"
-SCRIPT_DIR="$INSTALL_DIR/scripts"
-CONFIG_DIR="$INSTALL_DIR/config"
-LOGS_DIR="$INSTALL_DIR/logs"
-
-# Canais
-CHANNELS=(
-    "A&E:CH0100000000110"
-    "AMC:CH0100000000082"
-    "AMC SERIES:CH0100000000308"
-    "ANIMAL PLANET:CH0100000000116"
-    "AXN:CH0100000000086"
-    "BAND NEWS:CH0100000000089"
-    "BAND SPORTS:CH0100000000124"
-    "BIS:CH0100000000073"
-    "BM&F NEWS:CH0100000000216"
-)
-
-# Função para log
-log() {
-    echo -e "${GREEN}[$(date '+%Y-%m-%d %H:%M:%S')]${NC} $1"
-}
-
-error() {
-    echo -e "${RED}[ERRO]${NC} $1"
-    exit 1
-}
-
-# Verificar arquitetura
-ARCH=$(uname -m)
-if [[ "$ARCH" != "aarch64" && "$ARCH" != "x86_64" ]]; then
-    error "Arquitetura $ARCH não suportada. Use ARM64 ou x86_64."
-fi
-
-log "Arquitetura detectada: $ARCH"
-
-# Atualizar sistema
-log "Atualizando sistema..."
-apt update && apt upgrade -y
-
-# Instalar dependências
-log "Instalando dependências..."
-apt install -y wget curl git unzip chromium-browser xvfb python3 python3-pip python3-venv \
-    ffmpeg libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
-    libxrandr2 libgbm1 libasound2 fonts-liberation xdg-utils
-
-# Criar diretórios
-log "Criando diretórios..."
-rm -rf "$INSTALL_DIR"
-mkdir -p "$INSTALL_DIR" "$SCRIPT_DIR" "$CONFIG_DIR" "$LOGS_DIR"
-
-# Configurar usuário sky
-useradd -r -s /bin/false sky || true
-
-# Criar arquivos de configuração
-cat > "$CONFIG_DIR/config.json" << 'EOF'
+cat > "$INSTALL_DIR/config.json" << 'EOF'
 {
     "email": "eliezio2000@hotmail.com",
     "password": "R5n9y5y5@%",
-    "profile": "Perfil1",
-    "headless": true,
     "channels": [
         {"name": "A&E", "id": "CH0100000000110"},
         {"name": "AMC", "id": "CH0100000000082"},
@@ -91,339 +36,250 @@ cat > "$CONFIG_DIR/config.json" << 'EOF'
 }
 EOF
 
-# Instalar Python dependencies
-log "Instalando Python dependencies..."
 cd "$INSTALL_DIR"
 python3 -m venv venv
 source venv/bin/activate
+
 pip install --upgrade pip
-pip install selenium playwright requests beautifulsoup4 lxml
+pip install selenium==4.15.2 undetected-chromedriver requests beautifulsoup4 lxml websocket-client
 
-# Instalar Playwright browsers
-playwright install chromium --with-deps
-
-# Baixar scripts principais
-log "Baixando scripts..."
-
-cat > "$SCRIPT_DIR/sky_capture.py" << 'EOF'
+cat > "$INSTALL_DIR/sky_pro.py" << 'EOF'
 #!/usr/bin/env python3
-import json
-import time
-import re
-import requests
-import subprocess
-from selenium import webdriver
+import json, time, random, re, requests, base64, os
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import logging
-import os
-import sys
-from urllib.parse import urlparse, parse_qs
-import xml.etree.ElementTree as ET
 
-class SkyCapture:
-    def __init__(self, config_path):
-        self.config = self.load_config(config_path)
-        self.setup_logging()
-        self.driver = None
-        self.session_cookies = {}
-        
-    def load_config(self, config_path):
-        with open(config_path, 'r') as f:
-            return json.load(f)
-    
-    def setup_logging(self):
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('/opt/sky-capture/logs/sky.log'),
-                logging.StreamHandler(sys.stdout)
-            ]
-        )
+class SkyPro:
+    def __init__(self):
+        self.config = json.load(open('config.json'))
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
         self.logger = logging.getLogger(__name__)
     
-    def get_chrome_options(self):
-        options = Options()
+    def human_delay(self, min_sec=1, max_sec=3):
+        time.sleep(random.uniform(min_sec, max_sec))
+    
+    def get_stealth_driver(self):
+        options = uc.ChromeOptions()
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
         options.add_argument('--window-size=1920,1080')
-        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-        options.add_argument('--headless')
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
-        return options
+        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        
+        # Plugins e extensões reais
+        options.add_argument('--load-extension=/tmp')
+        options.add_argument('--disable-extensions-except=/tmp')
+        
+        driver = uc.Chrome(options=options, version_main=120)
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]})")
+        driver.execute_script("Object.defineProperty(navigator, 'languages', {get: () => ['pt-BR', 'pt', 'en-US', 'en']})")
+        return driver
+    
+    def solve_captcha_if_present(self, driver):
+        try:
+            # Detectar CAPTCHA
+            captcha_selectors = [
+                '[data-recaptcha], iframe[src*="recaptcha"]',
+                '.g-recaptcha', '.captcha', '[id*="captcha"]',
+                'iframe[src*="captcha"]', 'div[role="checkbox"]'
+            ]
+            
+            for selector in captcha_selectors:
+                if driver.find_elements(By.CSS_SELECTOR, selector):
+                    self.logger.warning("CAPTCHA detectado - tentando bypass...")
+                    
+                    # Scroll humano
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+                    self.human_delay(2, 4)
+                    
+                    # Simular movimento de mouse
+                    driver.execute_script("""
+                        var ev = new MouseEvent('mousemove', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true,
+                            clientX: 300,
+                            clientY: 300
+                        });
+                        document.dispatchEvent(ev);
+                    """)
+                    
+                    self.human_delay(3, 5)
+                    return True
+        except:
+            pass
+        return False
     
     def login(self):
-        self.logger.info("Iniciando login...")
-        options = self.get_chrome_options()
-        self.driver = webdriver.Chrome(options=options)
-        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        
+        driver = self.get_stealth_driver()
         try:
-            # Acessar página de login
-            login_url = "https://sm-sky-ui.vrioservices.com/logins?failureRedirect=https%3A%2F%2Fwww.skymais.com.br%2Facessar&country=BR&cp_convert=dtvgo&response_type=code&redirect_uri=https%3A%2F%2Fsp.tbxnet.com%2Fv2%2Fauth%2Foauth2%2Fassert&state=63342ad3e5e14f75a0ffc5ef0dcffc737f3ba43a8846be3d9f737f66385d1b99a6c0a72147003da2c600c8b587aa974aff0d8c616e00568d6f6c3782f796a454039692f5d116685e3f867a3449ccf8e709809448bfb46ef35754a07402e48bf07e25d953aa462353d99f342eca641d621d4358b504c7581f8b43165e0c2161890e04bd8c320e8514760c9871c96d2f3797896f13a916b8f889cf82e6bea6b64c82e00940febd1f1ec0f3f95d72589e4aa7b2863b57a26124d553f1ac84e9a44b9430711a277b66b4e0dd9c89286372f&client_id=sky_br"
-            self.driver.get(login_url)
+            self.logger.info("🚀 Iniciando login STEALTH...")
             
-            # Preencher email
-            email_field = WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder*="e-mail"], input[placeholder*="E-mail"], input[type="email"]'))
+            # URL de login direta
+            login_url = "https://sm-sky-ui.vrioservices.com/logins?failureRedirect=https%3A%2F%2Fwww.skymais.com.br%2Facessar&country=BR&cp_convert=dtvgo&response_type=code&redirect_uri=https%3A%2F%2Fsp.tbxnet.com%2Fv2%2Fauth%2Foauth2%2Fassert&state=63342ad3e5e14f75a0ffc5ef0dcffc737f3ba43a8846be3d9f737f66385d1b99a6c0a72147003da2c600c8b587aa974aff0d8c616e00568d6f6c3782f796a454039692f5d116685e3f867a3449ccf8e709809448bfb46ef35754a07402e48bf07e25d953aa462353d99f342eca641d621d4358b504c7581f8b43165e0c2161890e04bd8c320e8514760c9871c96d2f3797896f13a916b8f889cf82e6bea6b64c82e00940febd1f1ec0f3f95d72589e4aa7b2863b57a26124d553f1ac84e9a44b9430711a277b66b4e0dd9c89286372f&client_id=sky_br"
+            
+            self.human_delay(2, 4)
+            driver.get(login_url)
+            self.human_delay(3, 5)
+            
+            # CAPTCHA check
+            self.solve_captcha_if_present(driver)
+            
+            # Email
+            email_field = WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder*="e-mail"], input[placeholder*="E-mail"], input[type="email"], input[autocomplete="email"]'))
             )
             email_field.clear()
-            email_field.send_keys(self.config['email'])
+            for char in self.config['email']:
+                email_field.send_keys(char)
+                time.sleep(random.uniform(0.05, 0.15))
             
-            # Preencher senha
-            password_field = self.driver.find_element(By.CSS_SELECTOR, 'input[placeholder*="senha"], input[type="password"]')
+            self.human_delay(1, 2)
+            
+            # Senha
+            password_field = driver.find_element(By.CSS_SELECTOR, 'input[placeholder*="senha"], input[placeholder*="Senha"], input[type="password"]')
             password_field.clear()
-            password_field.send_keys(self.config['password'])
+            for char in self.config['password']:
+                password_field.send_keys(char)
+                time.sleep(random.uniform(0.08, 0.2))
             
-            # Clicar em continuar
-            continue_btn = self.driver.find_element(By.CSS_SELECTOR, 'button.btn-primary, button[type="submit"]')
-            self.driver.execute_script("arguments[0].click();", continue_btn)
+            self.human_delay(1, 2)
             
-            # Esperar redirecionamento para perfil
-            WebDriverWait(self.driver, 30).until(
-                lambda d: "skymais.com.br/user/profile" in d.current_url or "skymais.com.br/home" in d.current_url
-            )
+            # Botão continuar
+            continue_btn = driver.find_element(By.CSS_SELECTOR, 'button.btn-primary, button.btn-block, button[type="submit"], button:contains("Continuar")')
+            driver.execute_script("arguments[0].scrollIntoView();", continue_btn)
+            self.human_delay(1, 2)
+            driver.execute_script("arguments[0].click();", continue_btn)
             
-            # Selecionar perfil
-            try:
-                profile_card = WebDriverWait(self.driver, 10).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'div[class*="profile"][class*="P1"], div:contains("P1")'))
-                )
-                self.driver.execute_script("arguments[0].click();", profile_card)
-                time.sleep(5)
-            except TimeoutException:
-                self.logger.warning("Perfil não encontrado ou já selecionado")
+            self.human_delay(5, 8)
             
-            # Ir para ao vivo
-            self.driver.get("https://www.skymais.com.br/home/live")
-            time.sleep(5)
-            
-            # Salvar cookies da sessão
-            self.session_cookies = self.driver.get_cookies()
-            self.logger.info("Login realizado com sucesso!")
-            
-        except Exception as e:
-            self.logger.error(f"Erro no login: {str(e)}")
-            raise
-    
-    def extract_mpd_url(self, channel_url):
-        self.logger.info(f"Extraindo stream para: {channel_url}")
-        self.driver.get(channel_url)
-        time.sleep(10)
-        
-        # Capturar requests de rede (simulado via logs)
-        logs = self.driver.get_log('performance')
-        
-        mpd_urls = []
-        for log in logs:
-            message = log['message']
-            if 'dash' in message.lower() or 'mpd' in message.lower():
+            # Verificar se login foi bem-sucedido
+            current_url = driver.current_url
+            if "skymais.com.br/user/profile" in current_url or "skymais.com.br/home" in current_url:
+                self.logger.info("✅ Login realizado!")
+                
+                # Selecionar perfil se necessário
                 try:
-                    # Extrair URL do MPD dos logs
-                    url_match = re.search(r'"(https?://[^"]*manifest\.mpd[^"]*)"', message)
-                    if url_match:
-                        mpd_urls.append(url_match.group(1))
+                    profile = WebDriverWait(driver, 10).until(
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, 'div[class*="P1"], div:contains("Perfil1")'))
+                    )
+                    driver.execute_script("arguments[0].click();", profile)
+                    self.human_delay(3, 5)
                 except:
-                    continue
-        
-        # Fallback: tentar encontrar via página
-        if not mpd_urls:
-            page_source = self.driver.page_source
-            mpd_match = re.search(r'(https?://[^"\s]*manifest\.mpd[^"\s]*)', page_source)
-            if mpd_match:
-                mpd_urls.append(mpd_match.group(1))
-        
-        if mpd_urls:
-            self.logger.info(f"MPD encontrado: {mpd_urls[0]}")
-            return mpd_urls[0]
-        
-        self.logger.error("MPD não encontrado")
-        return None
+                    pass
+                
+                return driver
+            else:
+                self.logger.error(f"❌ Login falhou. URL: {current_url}")
+                page_source = driver.page_source[:500]
+                if "captcha" in page_source.lower() or "recaptcha" in page_source.lower():
+                    self.logger.error("🔒 CAPTCHA detectado!")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Erro login: {e}")
+            return None
     
-    def generate_vlc_urls(self, mpd_url):
-        """Gera URLs VLC para FHD, HD e SD"""
+    def capture_channel(self, driver, channel):
         try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://www.skymais.com.br/',
-                'Origin': 'https://www.skymais.com.br'
-            }
+            self.logger.info(f"📺 Capturando {channel['name']}...")
+            url = f"https://www.skymais.com.br/player/live/{channel['id']}"
             
-            response = requests.get(mpd_url, headers=headers, timeout=15)
-            root = ET.fromstring(response.content)
+            driver.get(url)
+            self.human_delay(8, 12)
             
-            # Encontrar BaseURL principal
-            base_url = None
-            for base in root.findall('.//{urn:mpeg:dash:schema:mpd:2011}BaseURL'):
-                base_url = base.text
-                break
+            # Capturar network logs
+            logs = driver.get_log('performance')
+            mpd_url = None
             
-            if not base_url:
-                location = root.find('.//{urn:mpeg:dash:schema:mpd:2011}Location')
-                if location is not None:
-                    base_url = location.text
+            for log in logs[-20:]:
+                msg = log['message']
+                if 'manifest.mpd' in msg:
+                    match = re.search(r'"(https?://[^"]*manifest\.mpd[^"]*)"', msg)
+                    if match:
+                        mpd_url = match.group(1)
+                        break
             
-            if not base_url:
-                self.logger.error("BaseURL não encontrado")
-                return {}
+            # Fallback: procurar no source
+            if not mpd_url:
+                source = driver.page_source
+                matches = re.findall(r'(https?://[^"\s]*manifest\.mpd[^"\s]*)', source)
+                if matches:
+                    mpd_url = matches[0]
             
-            # URLs por qualidade
-            urls = {
-                'FHD': f'"{base_url}"',
-                'HD': f'"{base_url}"',
-                'SD': f'"{base_url}"'
-            }
-            
-            self.logger.info("URLs VLC geradas com sucesso")
-            return urls
+            return mpd_url
             
         except Exception as e:
-            self.logger.error(f"Erro ao processar MPD: {str(e)}")
-            return {}
+            self.logger.error(f"Erro {channel['name']}: {e}")
+            return None
     
-    def capture_all_channels(self):
-        self.login()
-        results = {}
+    def run(self):
+        driver = self.login()
+        if not driver:
+            return
+        
+        m3u = "#EXTM3U\n#EXT-X-VERSION:3\n"
+        success = 0
         
         for channel in self.config['channels']:
-            try:
-                channel_url = f"https://www.skymais.com.br/player/live/{channel['id']}"
-                mpd_url = self.extract_mpd_url(channel_url)
-                
-                if mpd_url:
-                    vlc_urls = self.generate_vlc_urls(mpd_url)
-                    results[channel['name']] = {
-                        'mpd': mpd_url,
-                        'vlc': vlc_urls
-                    }
-                    self.logger.info(f"{channel['name']}: OK")
-                else:
-                    results[channel['name']] = {'error': 'MPD não encontrado'}
-                    self.logger.error(f"{channel['name']}: FALHA")
-                
-                time.sleep(2)
-                
-            except Exception as e:
-                self.logger.error(f"Erro no canal {channel['name']}: {str(e)}")
-                results[channel['name']] = {'error': str(e)}
+            mpd = self.capture_channel(driver, channel)
+            if mpd:
+                m3u += f'#EXTINF:-1 tvg-id="{channel["id"]}" tvg-logo="https://sky.com/logo.png" group-title="Sky HD",{channel["name"]} FHD/HD/SD\n'
+                m3u += f"{mpd}|Referer:https://www.skymais.com.br/|User-Agent:Mozilla/5.0\n\n"
+                success += 1
+                self.logger.info(f"✅ {channel['name']}: {mpd[:80]}...")
+            else:
+                self.logger.error(f"❌ {channel['name']} falhou")
+            
+            self.human_delay(2, 4)
         
-        return results
-    
-    def close(self):
-        if self.driver:
-            self.driver.quit()
-
-def main():
-    config_path = '/opt/sky-capture/config/config.json'
-    capture = SkyCapture(config_path)
-    
-    try:
-        results = capture.capture_all_channels()
+        # Salvar M3U
+        with open('channels.m3u', 'w') as f:
+            f.write(m3u)
         
-        # Salvar resultados
-        output_file = '/opt/sky-capture/channels.m3u'
-        with open(output_file, 'w') as f:
-            f.write('#EXTM3U\n')
-            for name, data in results.items():
-                if 'vlc' in data:
-                    f.write(f'#EXTINF:-1,{name} FHD\n{data["vlc"]["FHD"]}\n')
-                    f.write(f'#EXTINF:-1,{name} HD\n{data["vlc"]["HD"]}\n')
-                    f.write(f'#EXTINF:-1,{name} SD\n{data["vlc"]["SD"]}\n\n')
-        
-        print(json.dumps(results, indent=2))
-        
-    finally:
-        capture.close()
+        self.logger.info(f"🎉 FINALIZADO! {success}/{len(self.config['channels'])} canais")
+        driver.quit()
 
 if __name__ == "__main__":
-    main()
+    SkyPro().run()
 EOF
 
-chmod +x "$SCRIPT_DIR/sky_capture.py"
+chmod +x "$INSTALL_DIR/sky_pro.py"
 
-# Criar serviço systemd
-cat > /etc/systemd/system/sky-capture.service << EOF
-[Unit]
-Description=Sky Channels Capture
-After=network.target
-
-[Service]
-Type=oneshot
-User=root
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/venv/bin/python $SCRIPT_DIR/sky_capture.py
-TimeoutStartSec=300
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Criar script de status
-cat > "$SCRIPT_DIR/status.sh" << 'EOF'
+cat > "$INSTALL_DIR/status.sh" << 'EOF'
 #!/bin/bash
-echo "=== Sky Capture Status ==="
-ls -la /opt/sky-capture/
-cat /opt/sky-capture/channels.m3u
-tail -20 /opt/sky-capture/logs/sky.log
+echo "=== SKY PRO Status ==="
+if [ -f channels.m3u ]; then
+    echo "📺 CANAIS CAPTURADOS:"
+    awk '/^#EXTINF/ {print $NF " (" $(NF-3) ")"}' channels.m3u
+    echo ""
+    echo "🔗 PRIMEIRO LINK:"
+    head -15 channels.m3u
+else
+    echo "❌ Execute: cd /opt/sky-pro && source venv/bin/activate && python sky_pro.py"
+fi
+echo ""
+echo "📋 LOG:"
+tail -10 logs/sky.log 2>/dev/null || echo "Sem logs"
 EOF
-chmod +x "$SCRIPT_DIR/status.sh"
+chmod +x "$INSTALL_DIR/status.sh"
 
-# Criar script de atualização
-cat > "$SCRIPT_DIR/update.sh" << 'EOF'
-#!/bin/bash
-cd /opt/sky-capture
-source venv/bin/activate
-pip install --upgrade -r <(echo "selenium playwright requests beautifulsoup4 lxml")
-playwright install chromium --with-deps
-systemctl restart sky-capture.timer
-echo "Atualização concluída!"
-EOF
-chmod +x "$SCRIPT_DIR/update.sh"
+ln -sf "$INSTALL_DIR/status.sh" /usr/local/bin/sky-pro
+ln -sf "$INSTALL_DIR/sky_pro.py" /usr/local/bin/sky-pro-run
 
-# Criar timer para atualização automática (a cada 30min)
-cat > /etc/systemd/system/sky-capture.timer << EOF
-[Unit]
-Description=Run Sky Capture every 30 minutes
+# Executar
+cd "$INSTALL_DIR" && source venv/bin/activate && python sky_pro.py
 
-[Timer]
-OnBootSec=5min
-OnUnitActiveSec=30min
-Unit=sky-capture.service
-
-[Install]
-WantedBy=timers.target
+echo "✅ SKY PRO instalado!"
+echo "📺 sky-pro          # Status"
+echo "🚀 sky-pro-run     # Capturar agora"
 EOF
 
-# Habilitar serviços
-systemctl daemon-reload
-systemctl enable sky-capture.timer
-systemctl start sky-capture.timer
-
-# Criar symlink
-ln -sf "$SCRIPT_DIR/status.sh" /usr/local/bin/sky-status
-ln -sf "$SCRIPT_DIR/update.sh" /usr/local/bin/sky-update
-
-log "✅ Instalação concluída!"
-log "📺 Execute: sky-status"
-log "🔄 Atualizar: sky-update"
-log "📁 Arquivos em: $INSTALL_DIR"
-log "📺 M3U: $INSTALL_DIR/channels.m3u"
-log "📋 Logs: $INSTALL_DIR/logs/sky.log"
-
-echo -e "${GREEN}
-🚀 Sky Capture instalado com sucesso!
-
-Comandos:
-  sky-status     - Ver status e canais
-  sky-update     - Atualizar script
-  cat /opt/sky-capture/channels.m3u  - Ver links VLC
-
-URLs fixas serão geradas em /opt/sky-capture/channels.m3u
-${NC}"
+chmod +x /tmp/sky-pro.sh && bash /tmp/sky-pro.sh
