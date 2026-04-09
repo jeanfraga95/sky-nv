@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# claro Mais IPTV Proxy - Instalador v4 (Python 3.8 compativel)
+# Record Mais IPTV Proxy - Instalador v5
 # Ubuntu 20.04 / 22.04 | ARM64 | x86_64
 
 set -euo pipefail
@@ -12,13 +12,13 @@ aviso() { echo -e "${AMARELO}  ! ${*}${RESET}"; }
 erro()  { echo -e "${VERMELHO}  X ${*}${RESET}"; exit 1; }
 titulo(){ echo -e "\n${NEGRITO}${AZUL}=== ${*} ===${RESET}"; }
 
-INSTALL_DIR="/opt/claro_proxy"
-SERVICE_NAME="claro_proxy"
+INSTALL_DIR="/opt/record_proxy"
+SERVICE_NAME="record_proxy"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-LOG_FILE="/var/log/claro_proxy.log"
+LOG_FILE="/var/log/record_proxy.log"
 PORTA=8888
 
-echo -e "\n${NEGRITO}${AZUL}=== claro Mais IPTV Proxy ===${RESET}\n"
+echo -e "\n${NEGRITO}${AZUL}=== Record Mais IPTV Proxy ===${RESET}\n"
 
 titulo "Verificacoes"
 [[ $EUID -ne 0 ]] && erro "Execute como root: sudo bash install.sh"
@@ -40,16 +40,46 @@ info "apt-get update..."
 apt-get update -qq 2>&1 | grep -vE "^W:|^N:|^Get:|^Hit:|^Ign:" || true
 ok "Pacotes atualizados"
 
-titulo "Limpeza anterior"
-systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+titulo "Limpeza TOTAL de instalacao anterior"
+
+# 1) Para e desabilita o servico
+info "Parando servico..."
+systemctl stop "$SERVICE_NAME"  2>/dev/null || true
 systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+
+# 2) Mata QUALQUER processo usando a porta (inclusive orfaos)
+info "Liberando porta ${PORTA}..."
+if command -v fuser &>/dev/null; then
+    fuser -k "${PORTA}/tcp" 2>/dev/null || true
+elif command -v lsof &>/dev/null; then
+    lsof -ti tcp:${PORTA} | xargs -r kill -9 2>/dev/null || true
+fi
+# Garante com ss tambem
+SS_PIDS=$(ss -tlnp "sport = :${PORTA}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
+[[ -n "$SS_PIDS" ]] && echo "$SS_PIDS" | xargs -r kill -9 2>/dev/null || true
+
+# 3) Mata qualquer python rodando record_proxy
+info "Matando processos record_proxy..."
+pkill -9 -f "record_proxy.py" 2>/dev/null || true
+pkill -9 -f "${INSTALL_DIR}" 2>/dev/null || true
+
+sleep 2
+
+# 4) Remove arquivos
 [[ -f "$SERVICE_FILE" ]] && { rm -f "$SERVICE_FILE"; systemctl daemon-reload; }
 [[ -d "$INSTALL_DIR" ]] && { info "Removendo $INSTALL_DIR..."; rm -rf "$INSTALL_DIR"; }
-ok "Limpeza OK"
+
+# 5) Confirma que a porta esta livre
+if ss -tlnp | grep -q ":${PORTA}"; then
+    erro "Porta ${PORTA} ainda ocupada! Execute: fuser -k ${PORTA}/tcp"
+fi
+
+ok "Limpeza OK - porta ${PORTA} livre"
 
 titulo "Dependencias do sistema"
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     python3 python3-pip python3-venv curl wget ca-certificates \
+    net-tools lsof psmisc \
     xvfb libglib2.0-0 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
     libcups2 libdrm2 libdbus-1-3 libexpat1 libxcb1 libxkbcommon0 libx11-6 \
     libxcomposite1 libxdamage1 libxext6 libxfixes3 libxrandr2 libgbm1 \
@@ -71,14 +101,14 @@ PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright playwright install chromium
 PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright playwright install-deps chromium 2>/dev/null || true
 ok "Chromium OK"
 
-titulo "Criando claro_proxy.py"
+titulo "Criando record_proxy.py"
 
-cat > "${INSTALL_DIR}/claro_proxy.py" << 'ENDOFPYSCRIPT'
+cat > "${INSTALL_DIR}/record_proxy.py" << 'ENDOFPYSCRIPT'
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════╗
-║        claro Mais IPTV Proxy - Links Fixos              ║
+║        Record Mais IPTV Proxy - Links Fixos              ║
 ║  Gera links estáveis para canais ao vivo com DASH        ║
 ║  Renova tokens automaticamente via Playwright            ║
 ╚══════════════════════════════════════════════════════════╝
@@ -113,63 +143,63 @@ PORT     = 8888
 CACHE_TTL           = 3600   # segundos (1 hora)
 TOKEN_REFRESH_AHEAD = 300    # renovar 5 min antes de expirar
 MAX_RETRIES         = 3
-CACHE_FILE          = "/opt/claro_proxy/cache.json"
-LOG_FILE            = "/var/log/claro_proxy.log"
+CACHE_FILE          = "/opt/record_proxy/cache.json"
+LOG_FILE            = "/var/log/record_proxy.log"
 
 # ─── Canais disponíveis ──────────────────────────────────────────────────────
 
 CHANNELS = {
     "ae": {
         "nome":   "A&E",
-        "url":    "https://www.claromais.com.br/player/live/CH0100000000110",
+        "url":    "https://www.recordmais.com.br/player/live/CH0100000000110",
         "grupo":  "Entretenimento",
         "logo":   "https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/A%26E_logo.svg/200px-A%26E_logo.svg.png",
     },
     "amc": {
         "nome":   "AMC",
-        "url":    "https://www.claromais.com.br/player/live/CH0100000000082",
+        "url":    "https://www.recordmais.com.br/player/live/CH0100000000082",
         "grupo":  "Entretenimento",
         "logo":   "",
     },
     "amcseries": {
         "nome":   "AMC Series",
-        "url":    "https://www.claromais.com.br/player/live/CH0100000000308",
+        "url":    "https://www.recordmais.com.br/player/live/CH0100000000308",
         "grupo":  "Entretenimento",
         "logo":   "",
     },
     "animalplanet": {
         "nome":   "Animal Planet",
-        "url":    "https://www.claromais.com.br/player/live/CH0100000000116",
+        "url":    "https://www.recordmais.com.br/player/live/CH0100000000116",
         "grupo":  "Documentários",
         "logo":   "",
     },
     "axn": {
         "nome":   "AXN",
-        "url":    "https://www.claromais.com.br/player/live/CH0100000000086",
+        "url":    "https://www.recordmais.com.br/player/live/CH0100000000086",
         "grupo":  "Entretenimento",
         "logo":   "",
     },
     "bandnews": {
         "nome":   "Band News",
-        "url":    "https://www.claromais.com.br/player/live/CH0100000000089",
+        "url":    "https://www.recordmais.com.br/player/live/CH0100000000089",
         "grupo":  "Notícias",
         "logo":   "",
     },
     "bandsports": {
         "nome":   "Band Sports",
-        "url":    "https://www.claromais.com.br/player/live/CH0100000000124",
+        "url":    "https://www.recordmais.com.br/player/live/CH0100000000124",
         "grupo":  "Esportes",
         "logo":   "",
     },
     "bis": {
         "nome":   "BIS",
-        "url":    "https://www.claromais.com.br/player/live/CH0100000000073",
+        "url":    "https://www.recordmais.com.br/player/live/CH0100000000073",
         "grupo":  "Música",
         "logo":   "",
     },
     "bmcnews": {
         "nome":   "BM&C News",
-        "url":    "https://www.claromais.com.br/player/live/CH0100000000216",
+        "url":    "https://www.recordmais.com.br/player/live/CH0100000000216",
         "grupo":  "Notícias",
         "logo":   "",
     },
@@ -194,7 +224,7 @@ logging.basicConfig(
         logging.FileHandler(LOG_FILE, encoding="utf-8"),
     ],
 )
-log = logging.getLogger("claro_proxy")
+log = logging.getLogger("record_proxy")
 
 # ─── Cache persistente ───────────────────────────────────────────────────────
 
@@ -265,7 +295,7 @@ def _fazer_login(page, context):
     """Executa o fluxo de login e seleção de perfil"""
     log.info("  → Abrindo página de login...")
     page.goto(
-        "https://www.claromais.com.br/acessar",
+        "https://www.recordmais.com.br/acessar",
         wait_until="domcontentloaded",
         timeout=30_000,
     )
@@ -394,8 +424,8 @@ def _buscar_mpd(manifest_url: str, req_headers: dict):
     """Faz o download do manifest MPD com os headers originais"""
     headers = {
         "User-Agent":      req_headers.get("user-agent", "Mozilla/5.0"),
-        "Origin":          "https://www.claromais.com.br",
-        "Referer":         "https://www.claromais.com.br/",
+        "Origin":          "https://www.recordmais.com.br",
+        "Referer":         "https://www.recordmais.com.br/",
         "Accept":          "*/*",
         "Accept-Encoding": "identity",
     }
@@ -494,7 +524,7 @@ def _obter_dados_canal(channel_key: str) -> "Optional[dict]":
 
 class ProxyHandler(BaseHTTPRequestHandler):
 
-    server_version = "claroProxy/1.0"
+    server_version = "RecordProxy/1.0"
 
     def log_message(self, fmt, *args):
         log.debug(f"HTTP {self.address_string()} – {fmt % args}")
@@ -579,7 +609,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if not dados:
             self._erro(503,
                 f"Falha ao capturar stream de '{CHANNELS[channel_key]['nome']}'.\n"
-                "Verifique as credenciais e o log: /var/log/claro_proxy.log\n")
+                "Verifique as credenciais e o log: /var/log/record_proxy.log\n")
             return
 
         for tentativa in range(2):
@@ -689,7 +719,7 @@ def main():
     ip = _ip_local()
 
     log.info("╔══════════════════════════════════════════════╗")
-    log.info("║        claro Mais IPTV Proxy                ║")
+    log.info("║        Record Mais IPTV Proxy                ║")
     log.info("╠══════════════════════════════════════════════╣")
     log.info(f"║  Porta   : {PORT:<35}║")
     log.info(f"║  Canais  : {len(CHANNELS):<35}║")
@@ -718,28 +748,29 @@ if __name__ == "__main__":
 
 ENDOFPYSCRIPT
 
-chmod +x "${INSTALL_DIR}/claro_proxy.py"
-ok "claro_proxy.py criado"
+chmod +x "${INSTALL_DIR}/record_proxy.py"
+ok "record_proxy.py criado"
 
+# Rotaciona log antigo
+[[ -f "$LOG_FILE" ]] && mv "$LOG_FILE" "${LOG_FILE}.bak" 2>/dev/null || true
 touch "$LOG_FILE"; chmod 666 "$LOG_FILE"
 
 titulo "Servico systemd"
 
 cat > "$SERVICE_FILE" << SVCEOF
 [Unit]
-Description=claro Mais IPTV Proxy
+Description=Record Mais IPTV Proxy
 After=network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=120
-StartLimitBurst=5
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=${INSTALL_DIR}/venv/bin/python3 ${INSTALL_DIR}/claro_proxy.py
+ExecStart=${INSTALL_DIR}/venv/bin/python3 ${INSTALL_DIR}/record_proxy.py
 Restart=on-failure
-RestartSec=20
+RestartSec=10
 StandardOutput=append:${LOG_FILE}
 StandardError=append:${LOG_FILE}
 Environment=PYTHONUNBUFFERED=1
@@ -752,11 +783,27 @@ SVCEOF
 
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
+
+# Ultima verificacao de porta antes de subir
+if ss -tlnp | grep -q ":${PORTA}"; then
+    aviso "Porta ainda ocupada, forcando liberacao..."
+    fuser -k "${PORTA}/tcp" 2>/dev/null || true
+    sleep 2
+fi
+
 systemctl start "$SERVICE_NAME"
 ok "Servico iniciado"
 
-sleep 4
-systemctl is-active --quiet "$SERVICE_NAME" && ok "Servico rodando" || aviso "Ainda iniciando (normal na 1a vez)"
+# Aguarda ate 15s o servico estabilizar
+info "Aguardando estabilizacao..."
+for i in $(seq 1 15); do
+    sleep 1
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+        ok "Servico rodando! (${i}s)"
+        break
+    fi
+    [[ $i -eq 15 ]] && aviso "Ainda iniciando (normal na 1a vez - capturando canais)"
+done
 
 IP_LOCAL=$(hostname -I | awk '{print $1}')
 IP=$(curl -s --max-time 8 https://api.ipify.org 2>/dev/null || echo "$IP_LOCAL")
@@ -769,6 +816,7 @@ echo -e "  A&E HD   : http://${IP}:${PORTA}/stream/ae/hd"
 echo -e "  A&E SD   : http://${IP}:${PORTA}/stream/ae/sd"
 echo -e "\n  Canais: ae amc amcseries animalplanet axn bandnews bandsports bis bmcnews"
 echo -e "\n  Logs    : sudo tail -f ${LOG_FILE}"
+echo -e "  Status  : sudo systemctl status ${SERVICE_NAME}"
 echo -e "  Refresh : curl http://localhost:${PORTA}/refresh\n"
 aviso "Pre-aquecimento pode levar ate 5 min. Acompanhe: sudo tail -f ${LOG_FILE}"
 echo ""
