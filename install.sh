@@ -144,7 +144,7 @@ ok "Chromium instalado com sucesso"
 titulo "Download do script"
 
 info "Baixando sky_proxy.py de ${REPO_BASE}..."
-curl -fsSL "${REPO_BASE}/sky_proxy.py" -o "${INSTALL_DIR}/record_proxy.py"
+curl -fsSL "${REPO_BASE}/sky_proxy.py" -o "${INSTALL_DIR}/sky_proxy.py"
 chmod +x "${INSTALL_DIR}/sky_proxy.py"
 ok "sky_proxy.py baixado"
 
