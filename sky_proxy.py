@@ -33,7 +33,7 @@ except ImportError:
 
 EMAIL    = "eliezio2000@hotmail.com"
 PASSWORD = "R5n9y5y5@$"
-PORT     = 8888
+PORT     = 8890
 CACHE_TTL           = 3600   # segundos (1 hora)
 TOKEN_REFRESH_AHEAD = 300    # renovar 5 min antes de expirar
 MAX_RETRIES         = 3
