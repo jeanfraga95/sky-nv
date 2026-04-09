@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Record Mais IPTV Proxy - Instalador v5
+# sky Mais IPTV Proxy - Instalador v5
 # Ubuntu 20.04 / 22.04 | ARM64 | x86_64
 
 set -euo pipefail
@@ -12,13 +12,13 @@ aviso() { echo -e "${AMARELO}  ! ${*}${RESET}"; }
 erro()  { echo -e "${VERMELHO}  X ${*}${RESET}"; exit 1; }
 titulo(){ echo -e "\n${NEGRITO}${AZUL}=== ${*} ===${RESET}"; }
 
-INSTALL_DIR="/opt/record_proxy"
-SERVICE_NAME="record_proxy"
+INSTALL_DIR="/opt/sky_proxy"
+SERVICE_NAME="sky_proxy"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-LOG_FILE="/var/log/record_proxy.log"
+LOG_FILE="/var/log/sky_proxy.log"
 PORTA=8888
 
-echo -e "\n${NEGRITO}${AZUL}=== Record Mais IPTV Proxy ===${RESET}\n"
+echo -e "\n${NEGRITO}${AZUL}=== sky Mais IPTV Proxy ===${RESET}\n"
 
 titulo "Verificacoes"
 [[ $EUID -ne 0 ]] && erro "Execute como root: sudo bash install.sh"
@@ -58,9 +58,9 @@ fi
 SS_PIDS=$(ss -tlnp "sport = :${PORTA}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
 [[ -n "$SS_PIDS" ]] && echo "$SS_PIDS" | xargs -r kill -9 2>/dev/null || true
 
-# 3) Mata qualquer python rodando record_proxy
-info "Matando processos record_proxy..."
-pkill -9 -f "record_proxy.py" 2>/dev/null || true
+# 3) Mata qualquer python rodando sky_proxy
+info "Matando processos sky_proxy..."
+pkill -9 -f "sky_proxy.py" 2>/dev/null || true
 pkill -9 -f "${INSTALL_DIR}" 2>/dev/null || true
 
 sleep 2
@@ -101,14 +101,14 @@ PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright playwright install chromium
 PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright playwright install-deps chromium 2>/dev/null || true
 ok "Chromium OK"
 
-titulo "Criando record_proxy.py"
+titulo "Criando sky_proxy.py"
 
-cat > "${INSTALL_DIR}/record_proxy.py" << 'ENDOFPYSCRIPT'
+cat > "${INSTALL_DIR}/sky_proxy.py" << 'ENDOFPYSCRIPT'
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════╗
-║        Record Mais IPTV Proxy - Links Fixos              ║
+║        sky Mais IPTV Proxy - Links Fixos              ║
 ║  Gera links estáveis para canais ao vivo com DASH        ║
 ║  Renova tokens automaticamente via Playwright            ║
 ╚══════════════════════════════════════════════════════════╝
@@ -143,63 +143,63 @@ PORT     = 8888
 CACHE_TTL           = 3600   # segundos (1 hora)
 TOKEN_REFRESH_AHEAD = 300    # renovar 5 min antes de expirar
 MAX_RETRIES         = 3
-CACHE_FILE          = "/opt/record_proxy/cache.json"
-LOG_FILE            = "/var/log/record_proxy.log"
+CACHE_FILE          = "/opt/sky_proxy/cache.json"
+LOG_FILE            = "/var/log/sky_proxy.log"
 
 # ─── Canais disponíveis ──────────────────────────────────────────────────────
 
 CHANNELS = {
     "ae": {
         "nome":   "A&E",
-        "url":    "https://www.recordmais.com.br/player/live/CH0100000000110",
+        "url":    "https://www.skymais.com.br/player/live/CH0100000000110",
         "grupo":  "Entretenimento",
         "logo":   "https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/A%26E_logo.svg/200px-A%26E_logo.svg.png",
     },
     "amc": {
         "nome":   "AMC",
-        "url":    "https://www.recordmais.com.br/player/live/CH0100000000082",
+        "url":    "https://www.skymais.com.br/player/live/CH0100000000082",
         "grupo":  "Entretenimento",
         "logo":   "",
     },
     "amcseries": {
         "nome":   "AMC Series",
-        "url":    "https://www.recordmais.com.br/player/live/CH0100000000308",
+        "url":    "https://www.skymais.com.br/player/live/CH0100000000308",
         "grupo":  "Entretenimento",
         "logo":   "",
     },
     "animalplanet": {
         "nome":   "Animal Planet",
-        "url":    "https://www.recordmais.com.br/player/live/CH0100000000116",
+        "url":    "https://www.skymais.com.br/player/live/CH0100000000116",
         "grupo":  "Documentários",
         "logo":   "",
     },
     "axn": {
         "nome":   "AXN",
-        "url":    "https://www.recordmais.com.br/player/live/CH0100000000086",
+        "url":    "https://www.skymais.com.br/player/live/CH0100000000086",
         "grupo":  "Entretenimento",
         "logo":   "",
     },
     "bandnews": {
         "nome":   "Band News",
-        "url":    "https://www.recordmais.com.br/player/live/CH0100000000089",
+        "url":    "https://www.skymais.com.br/player/live/CH0100000000089",
         "grupo":  "Notícias",
         "logo":   "",
     },
     "bandsports": {
         "nome":   "Band Sports",
-        "url":    "https://www.recordmais.com.br/player/live/CH0100000000124",
+        "url":    "https://www.skymais.com.br/player/live/CH0100000000124",
         "grupo":  "Esportes",
         "logo":   "",
     },
     "bis": {
         "nome":   "BIS",
-        "url":    "https://www.recordmais.com.br/player/live/CH0100000000073",
+        "url":    "https://www.skymais.com.br/player/live/CH0100000000073",
         "grupo":  "Música",
         "logo":   "",
     },
     "bmcnews": {
         "nome":   "BM&C News",
-        "url":    "https://www.recordmais.com.br/player/live/CH0100000000216",
+        "url":    "https://www.skymais.com.br/player/live/CH0100000000216",
         "grupo":  "Notícias",
         "logo":   "",
     },
@@ -224,7 +224,7 @@ logging.basicConfig(
         logging.FileHandler(LOG_FILE, encoding="utf-8"),
     ],
 )
-log = logging.getLogger("record_proxy")
+log = logging.getLogger("sky_proxy")
 
 # ─── Cache persistente ───────────────────────────────────────────────────────
 
@@ -295,7 +295,7 @@ def _fazer_login(page, context):
     """Executa o fluxo de login e seleção de perfil"""
     log.info("  → Abrindo página de login...")
     page.goto(
-        "https://www.recordmais.com.br/acessar",
+        "https://www.skymais.com.br/acessar",
         wait_until="domcontentloaded",
         timeout=30_000,
     )
@@ -424,8 +424,8 @@ def _buscar_mpd(manifest_url: str, req_headers: dict):
     """Faz o download do manifest MPD com os headers originais"""
     headers = {
         "User-Agent":      req_headers.get("user-agent", "Mozilla/5.0"),
-        "Origin":          "https://www.recordmais.com.br",
-        "Referer":         "https://www.recordmais.com.br/",
+        "Origin":          "https://www.skymais.com.br",
+        "Referer":         "https://www.skymais.com.br/",
         "Accept":          "*/*",
         "Accept-Encoding": "identity",
     }
@@ -524,7 +524,7 @@ def _obter_dados_canal(channel_key: str) -> "Optional[dict]":
 
 class ProxyHandler(BaseHTTPRequestHandler):
 
-    server_version = "RecordProxy/1.0"
+    server_version = "skyProxy/1.0"
 
     def log_message(self, fmt, *args):
         log.debug(f"HTTP {self.address_string()} – {fmt % args}")
@@ -609,7 +609,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if not dados:
             self._erro(503,
                 f"Falha ao capturar stream de '{CHANNELS[channel_key]['nome']}'.\n"
-                "Verifique as credenciais e o log: /var/log/record_proxy.log\n")
+                "Verifique as credenciais e o log: /var/log/sky_proxy.log\n")
             return
 
         for tentativa in range(2):
@@ -719,7 +719,7 @@ def main():
     ip = _ip_local()
 
     log.info("╔══════════════════════════════════════════════╗")
-    log.info("║        Record Mais IPTV Proxy                ║")
+    log.info("║        sky Mais IPTV Proxy                ║")
     log.info("╠══════════════════════════════════════════════╣")
     log.info(f"║  Porta   : {PORT:<35}║")
     log.info(f"║  Canais  : {len(CHANNELS):<35}║")
@@ -748,8 +748,8 @@ if __name__ == "__main__":
 
 ENDOFPYSCRIPT
 
-chmod +x "${INSTALL_DIR}/record_proxy.py"
-ok "record_proxy.py criado"
+chmod +x "${INSTALL_DIR}/sky_proxy.py"
+ok "sky_proxy.py criado"
 
 # Rotaciona log antigo
 [[ -f "$LOG_FILE" ]] && mv "$LOG_FILE" "${LOG_FILE}.bak" 2>/dev/null || true
@@ -759,7 +759,7 @@ titulo "Servico systemd"
 
 cat > "$SERVICE_FILE" << SVCEOF
 [Unit]
-Description=Record Mais IPTV Proxy
+Description=sky Mais IPTV Proxy
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0
@@ -768,7 +768,7 @@ StartLimitIntervalSec=0
 Type=simple
 User=root
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=${INSTALL_DIR}/venv/bin/python3 ${INSTALL_DIR}/record_proxy.py
+ExecStart=${INSTALL_DIR}/venv/bin/python3 ${INSTALL_DIR}/sky_proxy.py
 Restart=on-failure
 RestartSec=10
 StandardOutput=append:${LOG_FILE}
