@@ -16,7 +16,7 @@ INSTALL_DIR="/opt/sky_proxy"
 SERVICE_NAME="sky_proxy"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 LOG_FILE="/var/log/sky_proxy.log"
-PORTA=8888
+PORTA=8890
 
 echo -e "\n${NEGRITO}${AZUL}=== sky Mais IPTV Proxy ===${RESET}\n"
 
