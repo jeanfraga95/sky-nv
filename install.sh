@@ -1,285 +1,265 @@
-curl -fsSL -o /tmp/sky-pro.sh << 'EOF'
-#!/bin/bash
-# Sky PRO Anti-CAPTCHA - Versão ARM64 Ubuntu 20.04
+#!/usr/bin/env bash
+# ╔══════════════════════════════════════════════════════════════╗
+# ║   Record Mais IPTV Proxy - Instalador                        ║
+# ║   Compatível: Ubuntu 22.04 | ARM64 | x86_64                  ║
+# ║   GitHub: https://github.com/jeanfraga95/sky-nv              ║
+# ╚══════════════════════════════════════════════════════════════╝
 
-set -e
-echo "=== SKY PRO Anti-CAPTCHA Installer ==="
+set -euo pipefail
 
-# Dependências PRO
-apt update && apt install -y \
-    libxml2-dev libxslt1-dev python3-dev build-essential \
-    chromium-browser xvfb libnss3 libatk-bridge2.0-0 \
-    libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
-    libxrandr2 libgbm1 libasound2 fonts-liberation \
-    libu2f-udev libvulkan1 libdrm-amdgpu1 libxss1 \
-    libxrandr2 libasound2 libpangocairo-1.0-0 libatk1.0-0 \
-    libcairo-gobject2 libgtk-3-0 libgdk-pixbuf2.0-0
+# ─── Cores ──────────────────────────────────────────────────────────────────
 
-INSTALL_DIR="/opt/sky-pro"
-mkdir -p "$INSTALL_DIR" "{logs,scripts,config}" "$INSTALL_DIR/logs"
+VERDE='\033[0;32m'
+AMARELO='\033[1;33m'
+VERMELHO='\033[0;31m'
+AZUL='\033[0;34m'
+NEGRITO='\033[1m'
+RESET='\033[0m'
 
-cat > "$INSTALL_DIR/config.json" << 'EOF'
-{
-    "email": "eliezio2000@hotmail.com",
-    "password": "R5n9y5y5@%",
-    "channels": [
-        {"name": "A&E", "id": "CH0100000000110"},
-        {"name": "AMC", "id": "CH0100000000082"},
-        {"name": "AMC SERIES", "id": "CH0100000000308"},
-        {"name": "ANIMAL PLANET", "id": "CH0100000000116"},
-        {"name": "AXN", "id": "CH0100000000086"},
-        {"name": "BAND NEWS", "id": "CH0100000000089"},
-        {"name": "BAND SPORTS", "id": "CH0100000000124"},
-        {"name": "BIS", "id": "CH0100000000073"},
-        {"name": "BM&F NEWS", "id": "CH0100000000216"}
-    ]
-}
-EOF
+ok()    { echo -e "${VERDE}  ✓ ${*}${RESET}"; }
+info()  { echo -e "${AZUL}  → ${*}${RESET}"; }
+aviso() { echo -e "${AMARELO}  ⚠ ${*}${RESET}"; }
+erro()  { echo -e "${VERMELHO}  ✗ ${*}${RESET}"; exit 1; }
+titulo(){ echo -e "\n${NEGRITO}${AZUL}══ ${*} ══${RESET}"; }
 
+# ─── Variáveis ───────────────────────────────────────────────────────────────
+
+REPO_BASE="https://raw.githubusercontent.com/jeanfraga95/sky-nv/main"
+INSTALL_DIR="/opt/record_proxy"
+SERVICE_NAME="record_proxy"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+LOG_FILE="/var/log/record_proxy.log"
+PORTA=8888
+
+# ─── Banner ──────────────────────────────────────────────────────────────────
+
+echo -e ""
+echo -e "${NEGRITO}${AZUL}╔══════════════════════════════════════════════╗${RESET}"
+echo -e "${NEGRITO}${AZUL}║     Record Mais IPTV Proxy - Instalador      ║${RESET}"
+echo -e "${NEGRITO}${AZUL}║        ARM64 / x86_64  |  Ubuntu 22.04       ║${RESET}"
+echo -e "${NEGRITO}${AZUL}╚══════════════════════════════════════════════╝${RESET}"
+echo -e ""
+
+# ─── Verificações iniciais ───────────────────────────────────────────────────
+
+titulo "Verificações"
+
+# Root
+if [[ $EUID -ne 0 ]]; then
+    erro "Execute como root: sudo bash install.sh"
+fi
+ok "Executando como root"
+
+# Arquitetura
+ARCH=$(uname -m)
+if [[ "$ARCH" != "x86_64" && "$ARCH" != "aarch64" && "$ARCH" != "arm64" ]]; then
+    aviso "Arquitetura não testada: $ARCH (esperado x86_64 ou aarch64)"
+fi
+ok "Arquitetura: $ARCH"
+
+# Ubuntu 22.04
+if [[ -f /etc/os-release ]]; then
+    source /etc/os-release
+    info "Sistema: $PRETTY_NAME"
+fi
+
+# ─── Remover instalação anterior ─────────────────────────────────────────────
+
+titulo "Limpeza de instalação anterior"
+
+if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+    info "Parando serviço existente..."
+    systemctl stop "$SERVICE_NAME"
+    ok "Serviço parado"
+fi
+
+if systemctl is-enabled --quiet "$SERVICE_NAME" 2>/dev/null; then
+    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+fi
+
+if [[ -f "$SERVICE_FILE" ]]; then
+    rm -f "$SERVICE_FILE"
+    systemctl daemon-reload
+    ok "Serviço anterior removido"
+fi
+
+if [[ -d "$INSTALL_DIR" ]]; then
+    info "Removendo instalação anterior: $INSTALL_DIR"
+    rm -rf "$INSTALL_DIR"
+    ok "Diretório anterior removido"
+fi
+
+# ─── Dependências do sistema ──────────────────────────────────────────────────
+
+titulo "Dependências do sistema"
+
+info "Atualizando lista de pacotes..."
+apt-get update -qq
+
+info "Instalando dependências base..."
+apt-get install -y -qq \
+    python3 \
+    python3-pip \
+    python3-venv \
+    curl \
+    wget \
+    ca-certificates \
+    gnupg \
+    unzip \
+    libglib2.0-0 \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libdbus-1-3 \
+    libexpat1 \
+    libxcb1 \
+    libxkbcommon0 \
+    libx11-6 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
+    libatspi2.0-0 2>/dev/null || true
+
+ok "Dependências do sistema instaladas"
+
+# ─── Criar diretório e ambiente virtual ──────────────────────────────────────
+
+titulo "Ambiente Python"
+
+mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
+
+info "Criando ambiente virtual Python..."
 python3 -m venv venv
 source venv/bin/activate
 
-pip install --upgrade pip
-pip install selenium==4.15.2 undetected-chromedriver requests beautifulsoup4 lxml websocket-client
+info "Atualizando pip..."
+pip install --upgrade pip -q
 
-cat > "$INSTALL_DIR/sky_pro.py" << 'EOF'
-#!/usr/bin/env python3
-import json, time, random, re, requests, base64, os
-import undetected_chromedriver as uc
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import logging
+info "Instalando pacotes Python..."
+pip install -q \
+    playwright \
+    requests
 
-class SkyPro:
-    def __init__(self):
-        self.config = json.load(open('config.json'))
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
-        self.logger = logging.getLogger(__name__)
-    
-    def human_delay(self, min_sec=1, max_sec=3):
-        time.sleep(random.uniform(min_sec, max_sec))
-    
-    def get_stealth_driver(self):
-        options = uc.ChromeOptions()
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--window-size=1920,1080')
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
-        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-        
-        # Plugins e extensões reais
-        options.add_argument('--load-extension=/tmp')
-        options.add_argument('--disable-extensions-except=/tmp')
-        
-        driver = uc.Chrome(options=options, version_main=120)
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]})")
-        driver.execute_script("Object.defineProperty(navigator, 'languages', {get: () => ['pt-BR', 'pt', 'en-US', 'en']})")
-        return driver
-    
-    def solve_captcha_if_present(self, driver):
-        try:
-            # Detectar CAPTCHA
-            captcha_selectors = [
-                '[data-recaptcha], iframe[src*="recaptcha"]',
-                '.g-recaptcha', '.captcha', '[id*="captcha"]',
-                'iframe[src*="captcha"]', 'div[role="checkbox"]'
-            ]
-            
-            for selector in captcha_selectors:
-                if driver.find_elements(By.CSS_SELECTOR, selector):
-                    self.logger.warning("CAPTCHA detectado - tentando bypass...")
-                    
-                    # Scroll humano
-                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
-                    self.human_delay(2, 4)
-                    
-                    # Simular movimento de mouse
-                    driver.execute_script("""
-                        var ev = new MouseEvent('mousemove', {
-                            view: window,
-                            bubbles: true,
-                            cancelable: true,
-                            clientX: 300,
-                            clientY: 300
-                        });
-                        document.dispatchEvent(ev);
-                    """)
-                    
-                    self.human_delay(3, 5)
-                    return True
-        except:
-            pass
-        return False
-    
-    def login(self):
-        driver = self.get_stealth_driver()
-        try:
-            self.logger.info("🚀 Iniciando login STEALTH...")
-            
-            # URL de login direta
-            login_url = "https://sm-sky-ui.vrioservices.com/logins?failureRedirect=https%3A%2F%2Fwww.skymais.com.br%2Facessar&country=BR&cp_convert=dtvgo&response_type=code&redirect_uri=https%3A%2F%2Fsp.tbxnet.com%2Fv2%2Fauth%2Foauth2%2Fassert&state=63342ad3e5e14f75a0ffc5ef0dcffc737f3ba43a8846be3d9f737f66385d1b99a6c0a72147003da2c600c8b587aa974aff0d8c616e00568d6f6c3782f796a454039692f5d116685e3f867a3449ccf8e709809448bfb46ef35754a07402e48bf07e25d953aa462353d99f342eca641d621d4358b504c7581f8b43165e0c2161890e04bd8c320e8514760c9871c96d2f3797896f13a916b8f889cf82e6bea6b64c82e00940febd1f1ec0f3f95d72589e4aa7b2863b57a26124d553f1ac84e9a44b9430711a277b66b4e0dd9c89286372f&client_id=sky_br"
-            
-            self.human_delay(2, 4)
-            driver.get(login_url)
-            self.human_delay(3, 5)
-            
-            # CAPTCHA check
-            self.solve_captcha_if_present(driver)
-            
-            # Email
-            email_field = WebDriverWait(driver, 20).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, 'input[placeholder*="e-mail"], input[placeholder*="E-mail"], input[type="email"], input[autocomplete="email"]'))
-            )
-            email_field.clear()
-            for char in self.config['email']:
-                email_field.send_keys(char)
-                time.sleep(random.uniform(0.05, 0.15))
-            
-            self.human_delay(1, 2)
-            
-            # Senha
-            password_field = driver.find_element(By.CSS_SELECTOR, 'input[placeholder*="senha"], input[placeholder*="Senha"], input[type="password"]')
-            password_field.clear()
-            for char in self.config['password']:
-                password_field.send_keys(char)
-                time.sleep(random.uniform(0.08, 0.2))
-            
-            self.human_delay(1, 2)
-            
-            # Botão continuar
-            continue_btn = driver.find_element(By.CSS_SELECTOR, 'button.btn-primary, button.btn-block, button[type="submit"], button:contains("Continuar")')
-            driver.execute_script("arguments[0].scrollIntoView();", continue_btn)
-            self.human_delay(1, 2)
-            driver.execute_script("arguments[0].click();", continue_btn)
-            
-            self.human_delay(5, 8)
-            
-            # Verificar se login foi bem-sucedido
-            current_url = driver.current_url
-            if "skymais.com.br/user/profile" in current_url or "skymais.com.br/home" in current_url:
-                self.logger.info("✅ Login realizado!")
-                
-                # Selecionar perfil se necessário
-                try:
-                    profile = WebDriverWait(driver, 10).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, 'div[class*="P1"], div:contains("Perfil1")'))
-                    )
-                    driver.execute_script("arguments[0].click();", profile)
-                    self.human_delay(3, 5)
-                except:
-                    pass
-                
-                return driver
-            else:
-                self.logger.error(f"❌ Login falhou. URL: {current_url}")
-                page_source = driver.page_source[:500]
-                if "captcha" in page_source.lower() or "recaptcha" in page_source.lower():
-                    self.logger.error("🔒 CAPTCHA detectado!")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Erro login: {e}")
-            return None
-    
-    def capture_channel(self, driver, channel):
-        try:
-            self.logger.info(f"📺 Capturando {channel['name']}...")
-            url = f"https://www.skymais.com.br/player/live/{channel['id']}"
-            
-            driver.get(url)
-            self.human_delay(8, 12)
-            
-            # Capturar network logs
-            logs = driver.get_log('performance')
-            mpd_url = None
-            
-            for log in logs[-20:]:
-                msg = log['message']
-                if 'manifest.mpd' in msg:
-                    match = re.search(r'"(https?://[^"]*manifest\.mpd[^"]*)"', msg)
-                    if match:
-                        mpd_url = match.group(1)
-                        break
-            
-            # Fallback: procurar no source
-            if not mpd_url:
-                source = driver.page_source
-                matches = re.findall(r'(https?://[^"\s]*manifest\.mpd[^"\s]*)', source)
-                if matches:
-                    mpd_url = matches[0]
-            
-            return mpd_url
-            
-        except Exception as e:
-            self.logger.error(f"Erro {channel['name']}: {e}")
-            return None
-    
-    def run(self):
-        driver = self.login()
-        if not driver:
-            return
-        
-        m3u = "#EXTM3U\n#EXT-X-VERSION:3\n"
-        success = 0
-        
-        for channel in self.config['channels']:
-            mpd = self.capture_channel(driver, channel)
-            if mpd:
-                m3u += f'#EXTINF:-1 tvg-id="{channel["id"]}" tvg-logo="https://sky.com/logo.png" group-title="Sky HD",{channel["name"]} FHD/HD/SD\n'
-                m3u += f"{mpd}|Referer:https://www.skymais.com.br/|User-Agent:Mozilla/5.0\n\n"
-                success += 1
-                self.logger.info(f"✅ {channel['name']}: {mpd[:80]}...")
-            else:
-                self.logger.error(f"❌ {channel['name']} falhou")
-            
-            self.human_delay(2, 4)
-        
-        # Salvar M3U
-        with open('channels.m3u', 'w') as f:
-            f.write(m3u)
-        
-        self.logger.info(f"🎉 FINALIZADO! {success}/{len(self.config['channels'])} canais")
-        driver.quit()
+ok "Pacotes Python instalados"
 
-if __name__ == "__main__":
-    SkyPro().run()
+info "Instalando Playwright e browser Chromium..."
+playwright install chromium 2>&1 | tail -5
+playwright install-deps chromium 2>/dev/null || true
+
+ok "Chromium instalado"
+
+# ─── Download dos scripts ─────────────────────────────────────────────────────
+
+titulo "Download dos scripts"
+
+info "Baixando record_proxy.py..."
+curl -fsSL "${REPO_BASE}/record_proxy.py" -o "${INSTALL_DIR}/record_proxy.py"
+ok "record_proxy.py baixado"
+
+chmod +x "${INSTALL_DIR}/record_proxy.py"
+
+# Criar diretório de log
+touch "$LOG_FILE"
+chmod 666 "$LOG_FILE"
+
+# ─── Serviço systemd ──────────────────────────────────────────────────────────
+
+titulo "Serviço systemd"
+
+cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=Record Mais IPTV Proxy - Links Fixos para Canais ao Vivo
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=${INSTALL_DIR}/venv/bin/python3 ${INSTALL_DIR}/record_proxy.py
+Restart=on-failure
+RestartSec=15
+StandardOutput=append:${LOG_FILE}
+StandardError=append:${LOG_FILE}
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# Limites de recursos
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
 EOF
 
-chmod +x "$INSTALL_DIR/sky_pro.py"
+systemctl daemon-reload
+systemctl enable "$SERVICE_NAME"
+systemctl start "$SERVICE_NAME"
 
-cat > "$INSTALL_DIR/status.sh" << 'EOF'
-#!/bin/bash
-echo "=== SKY PRO Status ==="
-if [ -f channels.m3u ]; then
-    echo "📺 CANAIS CAPTURADOS:"
-    awk '/^#EXTINF/ {print $NF " (" $(NF-3) ")"}' channels.m3u
-    echo ""
-    echo "🔗 PRIMEIRO LINK:"
-    head -15 channels.m3u
+ok "Serviço criado e iniciado"
+
+# ─── Verificação final ────────────────────────────────────────────────────────
+
+titulo "Verificação"
+
+sleep 3
+
+if systemctl is-active --quiet "$SERVICE_NAME"; then
+    ok "Serviço rodando normalmente"
 else
-    echo "❌ Execute: cd /opt/sky-pro && source venv/bin/activate && python sky_pro.py"
+    aviso "Serviço não iniciou ainda (normal – aguarda captura inicial)"
+    aviso "Verifique: journalctl -u $SERVICE_NAME -f"
 fi
-echo ""
-echo "📋 LOG:"
-tail -10 logs/sky.log 2>/dev/null || echo "Sem logs"
-EOF
-chmod +x "$INSTALL_DIR/status.sh"
 
-ln -sf "$INSTALL_DIR/status.sh" /usr/local/bin/sky-pro
-ln -sf "$INSTALL_DIR/sky_pro.py" /usr/local/bin/sky-pro-run
+# IP da VPS
+IP_LOCAL=$(hostname -I | awk '{print $1}')
+IP_PUBLICO=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || echo "$IP_LOCAL")
 
-# Executar
-cd "$INSTALL_DIR" && source venv/bin/activate && python sky_pro.py
+# ─── Resumo ───────────────────────────────────────────────────────────────────
 
-echo "✅ SKY PRO instalado!"
-echo "📺 sky-pro          # Status"
-echo "🚀 sky-pro-run     # Capturar agora"
-EOF
+echo -e ""
+echo -e "${NEGRITO}${VERDE}╔══════════════════════════════════════════════════════╗${RESET}"
+echo -e "${NEGRITO}${VERDE}║          Instalação concluída com sucesso!           ║${RESET}"
+echo -e "${NEGRITO}${VERDE}╠══════════════════════════════════════════════════════╣${RESET}"
+echo -e "${NEGRITO}${VERDE}║                                                      ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  📺  Playlist M3U (todos os canais + qualidades):   ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  http://${IP_PUBLICO}:${PORTA}/playlist.m3u${RESET}"
+echo -e "${NEGRITO}${VERDE}║                                                      ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  🔍  Status e URLs individuais:                     ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  http://${IP_PUBLICO}:${PORTA}/status${RESET}"
+echo -e "${NEGRITO}${VERDE}║                                                      ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  ▶   Exemplo A&E no VLC:                            ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  http://${IP_PUBLICO}:${PORTA}/stream/ae/fhd         ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  http://${IP_PUBLICO}:${PORTA}/stream/ae/hd          ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  http://${IP_PUBLICO}:${PORTA}/stream/ae/sd          ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║                                                      ║${RESET}"
+echo -e "${NEGRITO}${VERDE}╠══════════════════════════════════════════════════════╣${RESET}"
+echo -e "${NEGRITO}${VERDE}║  Canais disponíveis:                                 ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  ae  amc  amcseries  animalplanet  axn               ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  bandnews  bandsports  bis  bmcnews                  ║${RESET}"
+echo -e "${NEGRITO}${VERDE}╠══════════════════════════════════════════════════════╣${RESET}"
+echo -e "${NEGRITO}${VERDE}║  Comandos úteis:                                     ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  sudo systemctl status ${SERVICE_NAME}                ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  sudo systemctl restart ${SERVICE_NAME}               ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  sudo tail -f ${LOG_FILE}            ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║                                                      ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║  ⚠  Nota: O primeiro pré-aquecimento pode levar     ║${RESET}"
+echo -e "${NEGRITO}${VERDE}║     alguns minutos (login + captura por canal).      ║${RESET}"
+echo -e "${NEGRITO}${VERDE}╚══════════════════════════════════════════════════════╝${RESET}"
+echo -e ""
 
-chmod +x /tmp/sky-pro.sh && bash /tmp/sky-pro.sh
+info "Para acompanhar o progresso inicial:"
+echo -e "  ${NEGRITO}sudo tail -f ${LOG_FILE}${RESET}"
+echo -e ""
