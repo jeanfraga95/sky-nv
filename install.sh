@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════════════╗
-# ║   Record Mais IPTV Proxy - Instalador v2                    ║
+# ║   SKY Mais IPTV Proxy - Instalador v2                    ║
 # ║   Compatível: Ubuntu 20.04 / 22.04 | ARM64 | x86_64         ║
 # ║   GitHub: https://github.com/jeanfraga95/sky-nv             ║
 # ╚══════════════════════════════════════════════════════════════╝
@@ -17,15 +17,15 @@ erro()  { echo -e "${VERMELHO}  ✗ ${*}${RESET}"; exit 1; }
 titulo(){ echo -e "\n${NEGRITO}${AZUL}══ ${*} ══${RESET}"; }
 
 REPO_BASE="https://raw.githubusercontent.com/jeanfraga95/sky-nv/main"
-INSTALL_DIR="/opt/record_proxy"
-SERVICE_NAME="record_proxy"
+INSTALL_DIR="/opt/sky_proxy"
+SERVICE_NAME="sky_proxy"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-LOG_FILE="/var/log/record_proxy.log"
-PORTA=8888
+LOG_FILE="/var/log/sky_proxy.log"
+PORTA=8890
 
 echo -e ""
 echo -e "${NEGRITO}${AZUL}╔══════════════════════════════════════════════╗${RESET}"
-echo -e "${NEGRITO}${AZUL}║     Record Mais IPTV Proxy - Instalador      ║${RESET}"
+echo -e "${NEGRITO}${AZUL}║     SKY Mais IPTV Proxy - Instalador      ║${RESET}"
 echo -e "${NEGRITO}${AZUL}║   ARM64 / x86_64  |  Ubuntu 20.04 / 22.04   ║${RESET}"
 echo -e "${NEGRITO}${AZUL}╚══════════════════════════════════════════════╝${RESET}"
 echo -e ""
@@ -143,10 +143,10 @@ ok "Chromium instalado com sucesso"
 
 titulo "Download do script"
 
-info "Baixando record_proxy.py de ${REPO_BASE}..."
-curl -fsSL "${REPO_BASE}/record_proxy.py" -o "${INSTALL_DIR}/record_proxy.py"
-chmod +x "${INSTALL_DIR}/record_proxy.py"
-ok "record_proxy.py baixado"
+info "Baixando sky_proxy.py de ${REPO_BASE}..."
+curl -fsSL "${REPO_BASE}/sky_proxy.py" -o "${INSTALL_DIR}/record_proxy.py"
+chmod +x "${INSTALL_DIR}/sky_proxy.py"
+ok "sky_proxy.py baixado"
 
 touch "$LOG_FILE"
 chmod 666 "$LOG_FILE"
@@ -157,7 +157,7 @@ titulo "Configurando serviço systemd"
 
 cat > "$SERVICE_FILE" << EOF
 [Unit]
-Description=Record Mais IPTV Proxy - Links Fixos
+Description=SKY Mais IPTV Proxy - Links Fixos
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=120
@@ -167,7 +167,7 @@ StartLimitBurst=5
 Type=simple
 User=root
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=${INSTALL_DIR}/venv/bin/python3 ${INSTALL_DIR}/record_proxy.py
+ExecStart=${INSTALL_DIR}/venv/bin/python3 ${INSTALL_DIR}/sky_proxy.py
 Restart=on-failure
 RestartSec=20
 StandardOutput=append:${LOG_FILE}
