@@ -1,0 +1,24 @@
+[Unit]
+Description=skyMais Stream Proxy
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=skymais
+Group=skymais
+WorkingDirectory=/opt/skymais
+Environment="skyMAIS_DIR=/opt/skymais"
+Environment="skyMAIS_PORT=8765"
+Environment="skyMAIS_EMAIL=eliezio2000@hotmail.com"
+Environment="skyMAIS_PASSWORD=R5n9y5y5@$"
+Environment="DISPLAY=:99"
+ExecStart=/opt/skymais/venv/bin/python app.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=skymais
+
+[Install]
+WantedBy=multi-user.target
