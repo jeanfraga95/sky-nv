@@ -278,6 +278,25 @@ elif [[ -d /etc/iptables ]]; then
 fi
 
 # ─── Sobe o serviço ──────────────────────────────────────────────────────────
+titulo "Instalando x11vnc (login remoto)"
+if ! command -v x11vnc &>/dev/null; then
+    apt-get install -y -qq x11vnc 2>/dev/null && ok "x11vnc instalado" \
+        || aviso "x11vnc nao instalou - login vnc pode falhar"
+else
+    ok "x11vnc ja disponivel"
+fi
+
+# Copia login_vnc.sh para INSTALL_DIR (vem do clone ou baixa separado)
+SCRIPT_ORIGIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/login_vnc.sh"
+if [[ -f "$SCRIPT_ORIGIN" ]]; then
+    cp -f "$SCRIPT_ORIGIN" "${INSTALL_DIR}/login_vnc.sh"
+elif [[ ! -f "${INSTALL_DIR}/login_vnc.sh" ]]; then
+    info "Baixando login_vnc.sh do GitHub..."
+    wget -q -O "${INSTALL_DIR}/login_vnc.sh" "${REPO_RAW}/login_vnc.sh" 2>/dev/null \
+        || aviso "login_vnc.sh nao encontrado no repo ainda - adicione ao GitHub"
+fi
+[[ -f "${INSTALL_DIR}/login_vnc.sh" ]] && chmod +x "${INSTALL_DIR}/login_vnc.sh" && ok "login_vnc.sh OK"
+
 titulo "Iniciando servico"
 
 ss -tlnp | grep -q ":${PORTA}" \
@@ -323,11 +342,8 @@ case "\${1:-status}" in
         systemctl status "\$SVC" --no-pager -l
         ;;
     login)
-        echo "Iniciando login interativo (resolva o captcha na janela)..."
-        DISPLAY=:99 \
-        PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright \
-        skyMAIS_DIR="\$DIR" \
-        "\$DIR/venv/bin/python3" "\$DIR/login.py"
+        echo "Iniciando login via VNC (resolva o captcha remotamente)..."
+        bash "\$DIR/login_vnc.sh"
         ;;
     refresh)
         curl -sf "http://localhost:\${PORTA}/refresh" \
@@ -374,8 +390,14 @@ echo -e "    AMC Series    http://${IP}:${PORTA}/live/amc-series"
 echo -e "    Animal Planet http://${IP}:${PORTA}/live/animal-planet"
 echo -e "    AXN           http://${IP}:${PORTA}/live/axn"
 echo ""
-echo -e "${AMARELO}  PROXIMO PASSO: faca o login uma vez para resolver o captcha:${RESET}"
-echo -e "  $ skymais login"
+echo -e "${AMARELO}  PROXIMO PASSO: faca o login via VNC (uma unica vez):${RESET}"
+echo -e "  $ skymais login
+
+  Isso ira:
+   1. Abrir VNC na porta 5900 com senha: sky123
+   2. Conecte com RealVNC/TightVNC → ${IP}:5900
+   3. Resolva o captcha na janela do browser
+   4. VNC encerra sozinho apos o login"
 echo ""
 echo -e "  Logs : tail -f ${LOG_FILE}"
 echo -e "  Ajuda: skymais --help"
