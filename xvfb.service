@@ -1,5 +1,5 @@
 [Unit]
-Description=Xvfb Virtual Display para SKYMais
+Description=Xvfb Virtual Display para skyMais
 After=network.target
 
 [Service]
