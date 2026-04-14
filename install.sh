@@ -286,16 +286,16 @@ else
     ok "x11vnc ja disponivel"
 fi
 
-# Copia login_vnc.sh para INSTALL_DIR (vem do clone ou baixa separado)
-SCRIPT_ORIGIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/login_vnc.sh"
+# Copia login_novnc.sh para INSTALL_DIR (vem do clone ou baixa separado)
+SCRIPT_ORIGIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/login_novnc.sh"
 if [[ -f "$SCRIPT_ORIGIN" ]]; then
-    cp -f "$SCRIPT_ORIGIN" "${INSTALL_DIR}/login_vnc.sh"
-elif [[ ! -f "${INSTALL_DIR}/login_vnc.sh" ]]; then
-    info "Baixando login_vnc.sh do GitHub..."
-    wget -q -O "${INSTALL_DIR}/login_vnc.sh" "${REPO_RAW}/login_vnc.sh" 2>/dev/null \
-        || aviso "login_vnc.sh nao encontrado no repo ainda - adicione ao GitHub"
+    cp -f "$SCRIPT_ORIGIN" "${INSTALL_DIR}/login_novnc.sh"
+elif [[ ! -f "${INSTALL_DIR}/login_novnc.sh" ]]; then
+    info "Baixando login_novnc.sh do GitHub..."
+    wget -q -O "${INSTALL_DIR}/login_novnc.sh" "${REPO_RAW}/login_novnc.sh" 2>/dev/null \
+        || aviso "login_novnc.sh nao encontrado no repo ainda - adicione ao GitHub"
 fi
-[[ -f "${INSTALL_DIR}/login_vnc.sh" ]] && chmod +x "${INSTALL_DIR}/login_vnc.sh" && ok "login_vnc.sh OK"
+[[ -f "${INSTALL_DIR}/login_novnc.sh" ]] && chmod +x "${INSTALL_DIR}/login_novnc.sh" && ok "login_novnc.sh OK"
 
 titulo "Iniciando servico"
 
@@ -343,7 +343,7 @@ case "\${1:-status}" in
         ;;
     login)
         echo "Iniciando login via VNC (resolva o captcha remotamente)..."
-        bash "\$DIR/login_vnc.sh"
+        bash "\$DIR/login_novnc.sh"
         ;;
     refresh)
         curl -sf "http://localhost:\${PORTA}/refresh" \
