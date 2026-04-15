@@ -1,6 +1,5 @@
 """
-auth.py — Autenticação skyMais via Playwright
-Faz login, resolve captcha manualmente (headed) e extrai URLs MPD dos canais.
+auth.py — Autenticação via cookies manuais + captura de URL MPD via Playwright
 """
 
 import asyncio
@@ -10,135 +9,151 @@ import os
 import time
 from pathlib import Path
 
-from playwright.async_api import async_playwright, TimeoutError as PWTimeout
+from playwright.async_api import async_playwright
 
 logger = logging.getLogger(__name__)
 
-BASE_DIR = Path(os.environ.get("skyMAIS_DIR", "/opt/skymais"))
-COOKIES_FILE = BASE_DIR / "cookies.json"
+BASE_DIR     = Path(os.environ.get("skyMAIS_DIR", "/opt/skymais"))
+COOKIES_FILE = BASE_DIR / "cookies.json"   # cookies convertidos (interno)
+COOKIES_TXT  = BASE_DIR / "cookies.txt"    # arquivo editado pelo usuário
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:109.0) "
     "Gecko/20100101 Firefox/115.0"
 )
-LOGIN_URL = (
-    "https://sm-sky-ui.vrioservices.com/logins"
-    "?failureRedirect=https%3A%2F%2Fwww.skymais.com.br%2Facessar"
-    "&country=BR&cp_convert=dtvgo&response_type=code"
-    "&redirect_uri=https%3A%2F%2Fsp.tbxnet.com%2Fv2%2Fauth%2Foauth2%2Fassert"
-    "&client_id=sky_br"
-)
 
-# ------------------------------------------------------------------ #
-#  Helpers de cookie                                                   #
-# ------------------------------------------------------------------ #
+# ─── Leitura/escrita de cookies ──────────────────────────────────────────────
 
-def save_cookies(cookies: list) -> None:
-    COOKIES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(COOKIES_FILE, "w") as f:
-        json.dump(cookies, f, indent=2)
-    logger.info(f"Cookies salvos em {COOKIES_FILE}")
+def _parse_cookie_string(raw: str) -> list[dict]:
+    """
+    Converte string "key=val; key2=val2" para lista de dicts do Playwright.
+    """
+    cookies = []
+    for part in raw.split(";"):
+        part = part.strip()
+        if "=" not in part:
+            continue
+        name, _, value = part.partition("=")
+        name  = name.strip()
+        value = value.strip()
+        if not name:
+            continue
+        cookies.append({
+            "name":   name,
+            "value":  value,
+            "domain": ".skymais.com.br",
+            "path":   "/",
+            "secure": True,
+            "httpOnly": False,
+            "sameSite": "None",
+        })
+    return cookies
 
 
-def load_cookies() -> list:
+def load_cookies() -> list[dict]:
+    """
+    Carrega cookies. Prioridade:
+    1. cookies.json (já processado anteriormente)
+    2. cookies.txt (editado pelo usuário) → converte e salva em cookies.json
+    """
+    # Verifica se cookies.txt foi atualizado depois do cookies.json
+    txt_mtime  = COOKIES_TXT.stat().st_mtime  if COOKIES_TXT.exists()  else 0
+    json_mtime = COOKIES_FILE.stat().st_mtime if COOKIES_FILE.exists() else 0
+
+    if txt_mtime > json_mtime:
+        # cookies.txt mais novo → reimporta
+        cookies = _import_from_txt()
+        if cookies:
+            return cookies
+
     if COOKIES_FILE.exists():
-        with open(COOKIES_FILE) as f:
-            return json.load(f)
+        try:
+            with open(COOKIES_FILE) as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Erro ao ler cookies.json: {e}")
+
     return []
 
 
-def cookies_valid(cookies: list) -> bool:
-    """Verifica se algum cookie de sessão ainda está no prazo."""
-    now = time.time()
-    session_keys = {"access_token", "id_token", "refresh_token", "tbx_session"}
-    for c in cookies:
-        if c.get("name", "").lower() in session_keys:
-            expires = c.get("expires", -1)
-            if expires == -1 or expires > now:
-                return True
-    # Se não encontrou cookie de sessão específico, assume válido (cookies de sessão
-    # sem expires são válidos enquanto o browser estiver aberto — nós os mantemos)
-    return len(cookies) > 0
+def save_cookies(cookies: list[dict]) -> None:
+    COOKIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(COOKIES_FILE, "w") as f:
+        json.dump(cookies, f, indent=2)
+    logger.info(f"Cookies salvos: {len(cookies)} entradas")
 
 
-# ------------------------------------------------------------------ #
-#  Login interativo (headed)                                           #
-# ------------------------------------------------------------------ #
-
-async def do_login_headed(email: str, password: str) -> list:
+def _import_from_txt() -> list[dict]:
     """
-    Abre browser visível para o usuário resolver o captcha manualmente.
-    Requer Xvfb no VPS: DISPLAY=:99 deve estar exportado.
-    Retorna lista de cookies após login bem-sucedido.
+    Lê cookies.txt, extrai a linha de cookies e converte para lista de dicts.
     """
-    logger.info("Iniciando login com browser visível (captcha manual)...")
+    if not COOKIES_TXT.exists():
+        return []
+    try:
+        raw_line = ""
+        with open(COOKIES_TXT) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    raw_line += line + " "
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=False,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--window-size=1280,800",
-            ],
-        )
-        ctx = await browser.new_context(
-            user_agent=USER_AGENT,
-            viewport={"width": 1280, "height": 800},
-        )
-        page = await ctx.new_page()
+        raw_line = raw_line.strip()
+        if not raw_line:
+            return []
 
-        logger.info(f"Abrindo: {LOGIN_URL}")
-        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30000)
-
-        # Preenche credenciais
-        await page.wait_for_selector('input[type="text"]', timeout=15000)
-        await page.fill('input[type="text"]', email)
-        await page.fill('input[type="password"]', password)
-        await page.click("button.btn-primary")
-
-        # Aguarda captcha + redirecionamento (até 5 min para o usuário resolver)
-        logger.info("Aguardando usuário resolver o captcha (até 5 min)...")
-        try:
-            await page.wait_for_url("**/user/profile**", timeout=300_000)
-        except PWTimeout:
-            await browser.close()
-            raise RuntimeError("Timeout aguardando resolução do captcha.")
-
-        logger.info("Login bem-sucedido! Selecionando perfil P1...")
-
-        # Seleciona perfil (primeiro disponível = P1)
-        try:
-            await page.wait_for_selector(
-                ".dtv-web-user-profile__card-logo", timeout=10000
-            )
-            await page.click(".dtv-web-user-profile__card-logo")
-        except PWTimeout:
-            logger.warning("Seletor de perfil não encontrado, tentando clique genérico...")
-            await page.click(".dtv-common-c-card-profile__logo", timeout=5000)
-
-        try:
-            await page.wait_for_url("**/home/main**", timeout=15000)
-        except PWTimeout:
-            logger.warning("Redirecionamento para /home/main demorou mais que o esperado.")
-
-        cookies = await ctx.cookies()
-        await browser.close()
-
-        save_cookies(cookies)
-        logger.info(f"{len(cookies)} cookies salvos.")
+        cookies = _parse_cookie_string(raw_line)
+        if cookies:
+            save_cookies(cookies)
+            logger.info(f"cookies.txt importado: {len(cookies)} cookies carregados")
         return cookies
+    except Exception as e:
+        logger.error(f"Erro ao importar cookies.txt: {e}")
+        return []
 
 
-# ------------------------------------------------------------------ #
-#  Extração de URL MPD (headless)                                      #
-# ------------------------------------------------------------------ #
-
-async def get_stream_url(page_url: str, cookies: list, timeout_s: int = 45) -> str | None:
+def cookies_valid(cookies: list[dict]) -> bool:
     """
-    Navega até a página do canal em modo headless com cookies existentes
-    e intercepta a URL do manifest MPD gerado pelo MediaTailor.
-    Retorna a URL do MPD ou None se não encontrado.
+    Verifica se há cookies suficientes para tentar uma sessão.
+    Retorna False se a lista for vazia ou só tiver cookies irrelevantes.
+    """
+    if not cookies:
+        return False
+    # Precisa ter pelo menos um cookie de sessão
+    session_keys = {
+        "access_token", "id_token", "tbxsid", "tbx_session",
+        "refresh_token", "dtv_session", "authorization"
+    }
+    names = {c.get("name", "").lower() for c in cookies}
+    return bool(names & session_keys)
+
+
+def get_cookies_status() -> dict:
+    """Retorna status dos cookies para exibir no /status."""
+    cookies = load_cookies()
+    txt_exists  = COOKIES_TXT.exists()
+    json_exists = COOKIES_FILE.exists()
+
+    txt_mtime = (
+        time.strftime("%d/%m/%Y %H:%M", time.localtime(COOKIES_TXT.stat().st_mtime))
+        if txt_exists else "—"
+    )
+
+    return {
+        "cookies_carregados": len(cookies),
+        "cookies_validos":    cookies_valid(cookies),
+        "ultima_atualizacao": txt_mtime,
+        "arquivo":            str(COOKIES_TXT),
+        "instrucoes":         "Edite o arquivo acima e execute: skymais reload-cookies",
+    }
+
+
+# ─── Captura de URL MPD via Playwright ──────────────────────────────────────
+
+async def get_stream_url(page_url: str, cookies: list[dict],
+                          timeout_s: int = 45) -> str | None:
+    """
+    Navega até a página do canal com os cookies da sessão e
+    intercepta a URL do manifest MPD do MediaTailor.
     """
     mpd_url = None
 
@@ -155,39 +170,39 @@ async def get_stream_url(page_url: str, cookies: list, timeout_s: int = 45) -> s
         ctx = await browser.new_context(
             user_agent=USER_AGENT,
             extra_http_headers={
-                "Origin": "https://www.skymais.com.br",
+                "Origin":  "https://www.skymais.com.br",
                 "Referer": "https://www.skymais.com.br/",
             },
         )
 
         if cookies:
-            await ctx.add_cookies(cookies)
+            try:
+                await ctx.add_cookies(cookies)
+            except Exception as e:
+                logger.warning(f"Erro ao adicionar cookies: {e}")
 
         page = await ctx.new_page()
 
-        # Intercepta todas as requests procurando pelo manifest
         def on_request(req):
             nonlocal mpd_url
-            url = req.url
             if mpd_url:
                 return
-            # Padrões que indicam o manifest MPD do MediaTailor
-            if ".mpd" in url and ("mediatailor" in url or "amazonaws.com" in url):
-                logger.info(f"[MPD] Capturado: {url[:120]}...")
+            url = req.url
+            if (".mpd" in url and
+                    ("mediatailor" in url or "amazonaws.com" in url)):
+                logger.info(f"[MPD] {url[:100]}...")
                 mpd_url = url
             elif "/v1/manifest/" in url:
-                logger.info(f"[MPD via manifest path] Capturado: {url[:120]}...")
+                logger.info(f"[MPD manifest] {url[:100]}...")
                 mpd_url = url
 
         page.on("request", on_request)
 
-        logger.info(f"Acessando canal: {page_url}")
         try:
             await page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
-        except PWTimeout:
-            logger.warning(f"Timeout carregando {page_url}, continuando...")
+        except Exception as e:
+            logger.warning(f"Goto timeout ({page_url}): {e}")
 
-        # Aguarda até o MPD ser capturado
         deadline = time.time() + timeout_s
         while time.time() < deadline:
             if mpd_url:
@@ -197,31 +212,23 @@ async def get_stream_url(page_url: str, cookies: list, timeout_s: int = 45) -> s
         await browser.close()
 
     if not mpd_url:
-        logger.warning(f"MPD não encontrado para {page_url} após {timeout_s}s")
+        logger.warning(f"MPD não encontrado para {page_url}")
     return mpd_url
 
 
-# ------------------------------------------------------------------ #
-#  Função de alto nível usada pelo StreamManager                       #
-# ------------------------------------------------------------------ #
-
-async def refresh_all_urls(channels: dict, cookies: list) -> dict:
-    """
-    Para cada canal, tenta extrair a URL MPD.
-    Retorna dict {slug: mpd_url}.
-    """
+async def refresh_all_urls(channels: dict, cookies: list[dict]) -> dict:
+    """Captura URLs MPD para todos os canais."""
     results = {}
     for slug, info in channels.items():
-        logger.info(f"Extraindo URL para {info['name']}...")
+        logger.info(f"Capturando {info['name']}...")
         try:
             url = await get_stream_url(info["page_url"], cookies)
             if url:
                 results[slug] = url
                 logger.info(f"[{info['name']}] OK")
             else:
-                logger.warning(f"[{info['name']}] Não foi possível obter URL")
+                logger.warning(f"[{info['name']}] sem URL")
         except Exception as e:
-            logger.error(f"[{info['name']}] Erro: {e}")
-        # Pequena pausa entre canais para não sobrecarregar
-        await asyncio.sleep(3)
+            logger.error(f"[{info['name']}] erro: {e}")
+        await asyncio.sleep(2)
     return results
