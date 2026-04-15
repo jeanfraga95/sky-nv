@@ -113,7 +113,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     libx11-6 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxrandr2 \
     libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 \
     libx11-xcb1 libxcursor1 libxi6 libxtst6 \
-    fonts-liberation lsb-release 2>/dev/null || true
+    fonts-liberation lsb-release scrot xdotool imagemagick 2>/dev/null || true
 
 ok "Dependencias OK"
 
