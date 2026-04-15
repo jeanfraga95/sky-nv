@@ -113,7 +113,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     libx11-6 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxrandr2 \
     libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 \
     libx11-xcb1 libxcursor1 libxi6 libxtst6 \
-    fonts-liberation lsb-release scrot xdotool imagemagick 2>/dev/null || true
+    fonts-liberation lsb-release 2>/dev/null || true
 
 ok "Dependencias OK"
 
@@ -277,25 +277,31 @@ elif [[ -d /etc/iptables ]]; then
     iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
 fi
 
-# ─── Sobe o serviço ──────────────────────────────────────────────────────────
-titulo "Instalando x11vnc (login remoto)"
-if ! command -v x11vnc &>/dev/null; then
-    apt-get install -y -qq x11vnc 2>/dev/null && ok "x11vnc instalado" \
-        || aviso "x11vnc nao instalou - login vnc pode falhar"
-else
-    ok "x11vnc ja disponivel"
-fi
 
-# Copia login_novnc.sh para INSTALL_DIR (vem do clone ou baixa separado)
-SCRIPT_ORIGIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/login_novnc.sh"
-if [[ -f "$SCRIPT_ORIGIN" ]]; then
-    cp -f "$SCRIPT_ORIGIN" "${INSTALL_DIR}/login_novnc.sh"
-elif [[ ! -f "${INSTALL_DIR}/login_novnc.sh" ]]; then
-    info "Baixando login_novnc.sh do GitHub..."
-    wget -q -O "${INSTALL_DIR}/login_novnc.sh" "${REPO_RAW}/login_novnc.sh" 2>/dev/null \
-        || aviso "login_novnc.sh nao encontrado no repo ainda - adicione ao GitHub"
+# ─── Copia cookies.txt para INSTALL_DIR ──────────────────────────────────────
+titulo "Configurando cookies.txt"
+
+COOKIES_DEST="${INSTALL_DIR}/cookies.txt"
+COOKIES_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/cookies.txt"
+
+if [[ ! -f "$COOKIES_DEST" ]]; then
+    if [[ -f "$COOKIES_SRC" ]]; then
+        cp -f "$COOKIES_SRC" "$COOKIES_DEST"
+    else
+        # Baixa do repo ou cria vazio com instruções
+        wget -q -O "$COOKIES_DEST" "${REPO_RAW}/cookies.txt" 2>/dev/null || true
+        if [[ ! -s "$COOKIES_DEST" ]]; then
+            cat > "$COOKIES_DEST" << 'COOKIEOF'
+# Cole aqui os cookies do skymais.com.br (uma linha só, sem #)
+# Instruções: http://IP:8765/cookies-info
+# Após editar execute: skymais reload-cookies
+COOKIEOF
+        fi
+    fi
+    ok "cookies.txt criado em ${INSTALL_DIR}"
+else
+    ok "cookies.txt já existe — mantendo"
 fi
-[[ -f "${INSTALL_DIR}/login_novnc.sh" ]] && chmod +x "${INSTALL_DIR}/login_novnc.sh" && ok "login_novnc.sh OK"
 
 titulo "Iniciando servico"
 
@@ -341,9 +347,30 @@ case "\${1:-status}" in
     status)
         systemctl status "\$SVC" --no-pager -l
         ;;
-    login)
-        echo "Iniciando login via VNC (resolva o captcha remotamente)..."
-        bash "\$DIR/login_novnc.sh"
+    reload-cookies)
+        echo "Recarregando cookies de \$DIR/cookies.txt ..."
+        # Força leitura do cookies.txt apagando o json cacheado
+        rm -f "\$DIR/cookies.json"
+        systemctl restart "\$SVC"
+        sleep 3
+        if systemctl is-active --quiet "\$SVC"; then
+            echo "Cookies recarregados! Servico reiniciado."
+            curl -sf "http://localhost:\${PORTA}/status" \
+                | python3 -c "import sys,json; d=json.load(sys.stdin); \
+                  print('Cookies validos:', d.get('cookies_validos','?')); \
+                  print('Canais disponiveis:', sum(1 for c in d.get('canais',{}).values() if c['disponivel']))" \
+                2>/dev/null || true
+        else
+            echo "Erro ao reiniciar servico. Verifique: journalctl -u \$SVC -n 20"
+        fi
+        ;;
+    cookies)
+        echo "Instrucoes para atualizar cookies:"
+        echo "  http://\$(curl -s https://api.ipify.org 2>/dev/null || hostname -I | awk '{print \$1}'):\${PORTA}/cookies-info"
+        echo ""
+        echo "Arquivo de cookies: \$DIR/cookies.txt"
+        echo "Edite com: nano \$DIR/cookies.txt"
+        echo "Aplique com: skymais reload-cookies"
         ;;
     refresh)
         curl -sf "http://localhost:\${PORTA}/refresh" \
@@ -357,15 +384,26 @@ case "\${1:-status}" in
         curl -sf "http://localhost:\${PORTA}/status" | python3 -m json.tool
         ;;
     update)
-        echo "Atualizando arquivos do GitHub..."
-        for f in app.py auth.py channels.py stream_manager.py login.py; do
+        echo "Atualizando do GitHub..."
+        for f in app.py auth.py channels.py stream_manager.py; do
             wget -q -O "\$DIR/\$f" "\$REPO_RAW/\$f" && echo "  ok \$f" || echo "  falhou \$f"
         done
         systemctl restart "\$SVC"
         echo "Atualizado e reiniciado."
         ;;
     *)
-        echo "Uso: skymais {start|stop|restart|status|login|refresh|logs|urls|update}"
+        echo "Uso: skymais {start|stop|restart|status|reload-cookies|cookies|refresh|logs|urls|update}"
+        echo ""
+        echo "  start            — inicia o servico"
+        echo "  stop             — para o servico"
+        echo "  restart          — reinicia"
+        echo "  status           — estado detalhado"
+        echo "  reload-cookies   — aplica novos cookies do cookies.txt"
+        echo "  cookies          — mostra instrucoes para capturar cookies"
+        echo "  refresh          — forca renovacao dos links de stream"
+        echo "  logs             — logs em tempo real"
+        echo "  urls             — mostra status JSON"
+        echo "  update           — atualiza do GitHub"
         ;;
 esac
 CMDEOF
@@ -390,14 +428,15 @@ echo -e "    AMC Series    http://${IP}:${PORTA}/live/amc-series"
 echo -e "    Animal Planet http://${IP}:${PORTA}/live/animal-planet"
 echo -e "    AXN           http://${IP}:${PORTA}/live/axn"
 echo ""
-echo -e "${AMARELO}  PROXIMO PASSO: faca o login via VNC (uma unica vez):${RESET}"
-echo -e "  $ skymais login
-
-  Isso ira:
-   1. Abrir VNC na porta 5900 com senha: sky123
-   2. Conecte com RealVNC/TightVNC → ${IP}:5900
-   3. Resolva o captcha na janela do browser
-   4. VNC encerra sozinho apos o login"
+echo -e "${AMARELO}  PROXIMO PASSO — coloque os cookies para o sistema funcionar:${RESET}"
+echo ""
+echo -e "  1. No seu PC acesse https://www.skymais.com.br e faca login"
+echo -e "  2. F12 → Console → execute: copy(document.cookie)"
+echo -e "  3. Na VPS edite: nano /opt/skymais/cookies.txt"
+echo -e "     Apague as linhas sem # e cole o conteudo copiado"
+echo -e "  4. Aplique: skymais reload-cookies"
+echo ""
+echo -e "  Instrucoes completas: http://${IP}:${PORTA}/cookies-info"
 echo ""
 echo -e "  Logs : tail -f ${LOG_FILE}"
 echo -e "  Ajuda: skymais --help"
