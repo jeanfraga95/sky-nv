@@ -1,0 +1,29 @@
+# =============================================================================
+#  COOKIES DO RECORDMAIS — cole aqui os cookies capturados do browser
+#
+#  COMO CAPTURAR (faça isso no seu PC, não na VPS):
+#
+#  1. Acesse https://www.recordmais.com.br no Chrome ou Firefox
+#  2. Faça login normalmente (resolva o captcha, selecione perfil P1)
+#  3. Abra o Inspecionar (F12) → aba "Rede" (Network)
+#  4. Recarregue a página (F5)
+#  5. Clique em qualquer requisição para "recordmais.com.br"
+#  6. Na aba "Cabeçalhos" (Headers) → "Cabeçalhos de solicitação"
+#     Copie o valor completo do campo "cookie:" e cole abaixo
+#
+#  ALTERNATIVA MAIS FÁCIL (Chrome):
+#  1. Acesse https://www.recordmais.com.br e faça login
+#  2. F12 → Console → cole e execute:
+#     document.cookie
+#  3. Copie o resultado e cole abaixo
+#
+#  QUANDO RENOVAR:
+#  - O sistema avisa no /status quando os cookies expirarem
+#  - Normalmente dura 7-30 dias
+#  - Basta repetir os passos acima e editar este arquivo
+#  - Depois execute: recordmais reload-cookies
+#
+#  FORMATO: cole tudo em uma linha só (como aparece no browser)
+#  Exemplo: tbxsid=abc123; access_token=xyz...; profile_id=1
+# =============================================================================
+
