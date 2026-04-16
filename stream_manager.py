@@ -2,7 +2,7 @@
 stream_manager.py — Gerencia URLs MPD dos canais.
 Thread background faz refresh periódico SOMENTE se cookies válidos existirem.
 NAO tenta fazer login headed automaticamente — isso é feito via:
-  skymais login   (abre noVNC no browser para resolver captcha)
+  skymais login   (abre noVNC no browser para resolver captcha) 
 """
 
 import asyncio
